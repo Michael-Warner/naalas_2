@@ -484,7 +484,7 @@ class EEDatasetBuilder():
                            factor=None, seed=0, projection=None,
                            tileScale=1, geometries=True, dropNulls=True, isStratifiedSampling=False, numPoints=None,
                            classBand=None, classPoints=None,
-                           classValues=None):
+                           classValues=None, batch_size=None, batch_number=None):
         """
         Generates samples from the image and export them as CSV files to GCP bucket.
 
@@ -508,9 +508,12 @@ class EEDatasetBuilder():
         - classBand: (string) The name of the band containing the classes to use for stratification. If unspecified, the first band of the input image is used.
         - classPoints: (list) A list of the per-class maximum number of pixels to sample for each class in the classValues list.
         - classValues: (list) A list of class values for which to override the numPoints parameter. Must be the same size as classPoints or null.
+        - batch_size: (int) The number of features to be processed in one batch
+        - batch_number: (int) Identifies the sequence or the order of the batch in the entire process
         -------
 
         """
+        
         ###### Loading shapefile asset ######
         nb_features, list_features_assets = self.load_ee_asset_shapefile(shp_asset_path)
         if isStratifiedSampling:
@@ -520,40 +523,47 @@ class EEDatasetBuilder():
             print(
                 f'Sampling: \nnumPixels: {numPixels}, \nscale: {scale}, \ngeometries: {geometries}, \ndropNulls: {dropNulls}, \ntileScale: {tileScale}, \nfactor: {factor}, \nprojection:{projection}')
 
-        # Looping through the grids
-        for i in tqdm(range(nb_features)):
-            if isStratifiedSampling:
-                # Samples the pixels of an image, returning them as a FeatureCollection. 
-                # Each feature will have 1 property per band in the input image. 
-                # Note that the default behavior is to drop features that intersect masked pixels, 
-                # which result in null-valued properties (see dropNulls argument).
-#                 print('sampling...')
-                sample_current_feature = self.image.clip(list_features_assets[i]['geometry']).stratifiedSample(
-                    numPoints=numPoints,
-                    classBand=classBand,
-                    region=list_features_assets[i]['geometry'],
-                    scale=scale,
-                    geometries=geometries,
-                    dropNulls=dropNulls,
-                    tileScale=tileScale,
-                    classPoints=classPoints,
-                    classValues=classValues,
-                    seed=seed,
-                    projection=projection
-                )
-            else:
-                # Samples the pixels of an image, returning them as a FeatureCollection.
-                # Each feature will have 1 property per band in the input image.
-                # Note that the default behavior is to drop features that intersect masked pixels,
-                # which result in null-valued properties (see dropNulls argument).
-                sample_current_feature = self.image.clip(list_features_assets[i]['geometry']).sample(
-                    numPixels=numPixels,
-                    region=list_features_assets[i]['geometry'],
-                    scale=scale,
-                    projection=projection,
-                    factor=factor,
-                    tileScale=tileScale,
-                    geometries=geometries,
+
+        # Calculate start and end indices for the current batch
+        start_index = batch_number * batch_size
+        end_index = min(start_index + batch_size, nb_features)
+
+        # Looping through the grids in the current batch
+        for i in tqdm(range(start_index, end_index)):
+            # Looping through the grids
+            for i in tqdm(range(nb_features)):
+                if isStratifiedSampling:
+                    # Samples the pixels of an image, returning them as a FeatureCollection. 
+                    # Each feature will have 1 property per band in the input image. 
+                    # Note that the default behavior is to drop features that intersect masked pixels, 
+                    # which result in null-valued properties (see dropNulls argument).
+    #                 print('sampling...')
+                    sample_current_feature = self.image.clip(list_features_assets[i]['geometry']).stratifiedSample(
+                        numPoints=numPoints,
+                        classBand=classBand,
+                        region=list_features_assets[i]['geometry'],
+                        scale=scale,
+                        geometries=geometries,
+                        dropNulls=dropNulls,
+                        tileScale=tileScale,
+                        classPoints=classPoints,
+                        classValues=classValues,
+                        seed=seed,
+                        projection=projection
+                    )
+                else:
+                    # Samples the pixels of an image, returning them as a FeatureCollection.
+                    # Each feature will have 1 property per band in the input image.
+                    # Note that the default behavior is to drop features that intersect masked pixels,
+                    # which result in null-valued properties (see dropNulls argument).
+                    sample_current_feature = self.image.clip(list_features_assets[i]['geometry']).sample(
+                        numPixels=numPixels,
+                        region=list_features_assets[i]['geometry'],
+                        scale=scale,
+                        projection=projection,
+                        factor=factor,
+                        tileScale=tileScale,
+                        geometries=geometries,
                     # keeping the geometries so we can know where the data points are exactly and can display them on a map
                 )
 #             print('computing size...')
