@@ -1,2 +1,10 @@
 
 Data/Naalas&Ganga_Buff/naalas_masked.tif
+*.lock
+Data/Table_Exports/info/arc.dir
+Data/Table_Exports/info/arc0000.dat
+Data/Table_Exports/info/arc0000.nit
+Data/Table_Exports/info/arc0000.xml
+Data/Table_Exports/wide_format_table.cpg
+Data/Table_Exports/wide_format_table.dbf
+Data/Table_Exports/wide_format_table.dbf.xml
