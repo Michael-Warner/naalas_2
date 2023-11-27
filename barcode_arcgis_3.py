@@ -11,6 +11,7 @@ input_table = 'ExtractValuesToTable1'
 # Convert the table to a pandas DataFrame
 arr = arcpy.da.TableToNumPyArray(input_table, ['Value', 'SrcID_Feat'])
 df = pd.DataFrame(arr)
+df.fillna(0, inplace=True)
 
 # Set the df in the proper ascending order
 df = df.sort_values(by = "SrcID_Feat")
