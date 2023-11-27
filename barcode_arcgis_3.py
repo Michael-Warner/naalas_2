@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 
 # Set up the environment
+# EDIT THIS TO MATCH YOUR ENVIRONMENT
 arcpy.env.workspace = r'C:\Users\warne\Desktop\Projects\naalas_2\Data\Table_Exports'
 
 # The path to your input table
