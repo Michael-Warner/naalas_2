@@ -429,33 +429,34 @@ class EEDatasetBuilder():
 
     def load_ee_asset_shapefile(self, shp_asset_path):
         """
-        Load the ee shapefile provided.
+        Loads an Earth Engine asset as a shapefile and returns the number of features
+        and a list of features.
 
-        Parameters
-        ----------
-        - shp_asset_path: (ee asset) gridded shapefile (ex: 'projects/ee-margauxmasson21-shapefiles/assets/latin_america_gridded_5000km2')
-        -------
+        Parameters:
+        - shp_asset_path: Path to the Earth Engine asset.
 
-        Returns
-        ----------
-        - nb_features: number of features in the shapefile (eg: number of grids)
-        - list_features_assets: list of all the features (grids) from the shapefile
-        -------
+        Returns:
+        - nb_features: Number of features in the shapefile.
+        - list_features_assets: List of features in the shapefile.
         """
-        ###### Loading shapefile asset ######
         try:
-            # Loading the shapefile that was uploaded as a GEE asset -- we load the asset as a FeatureCollection
+            # Load the feature collection from Earth Engine
             asset = ee.FeatureCollection(shp_asset_path)
-            # nb_features = number of grid cells in the shapefile
-            nb_features = asset.size().getInfo()
-            # Converting FeatureCollection to python list because it crashes when query > 5000 elements
-            list_features_assets = asset.toList(nb_features).getInfo()
-            print(f"Geometry number of features: {nb_features}")
-        except:
-            print(f"Error when loading FeatureCollection: {shp_asset_path}.")
-            exit()
 
-        return nb_features, list_features_assets
+            # Count the number of features
+            nb_features = asset.size().getInfo()
+
+            # Converting FeatureCollection to a Python list (if needed)
+            # Converting FeatureCollection to python list because it crashes when query > 5000 elements
+            # Adjust as necessary depending on how you want to use the features
+            #list_features_assets = ee.FeatureCollection(shp_asset_path).toList(nb_features).getInfo()
+
+            return nb_features, asset #list_features_assets
+
+        except Exception as e:
+            print(f"Error when loading FeatureCollection: {shp_asset_path}. Details: {e}")
+            return None, None  # Returning None values to indicate an error
+           
 
     def export_samples_to_cloud_storage(self, samples, index, name_gcp_bucket, folder_in_gcp_bucket, scale):
         """
@@ -513,7 +514,10 @@ class EEDatasetBuilder():
         -------
 
         """
-        
+        if self.image is None:
+            print("Error: Earth Engine image not set.")
+            return
+    
         ###### Loading shapefile asset ######
         nb_features, list_features_assets = self.load_ee_asset_shapefile(shp_asset_path)
         if isStratifiedSampling:
