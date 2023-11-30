@@ -514,10 +514,7 @@ class EEDatasetBuilder():
         -------
 
         """
-        if self.image is None:
-            print("Error: Earth Engine image not set.")
-            return
-    
+            
         ###### Loading shapefile asset ######
         nb_features, list_features_assets = self.load_ee_asset_shapefile(shp_asset_path)
         if isStratifiedSampling:
@@ -527,6 +524,9 @@ class EEDatasetBuilder():
             print(
                 f'Sampling: \nnumPixels: {numPixels}, \nscale: {scale}, \ngeometries: {geometries}, \ndropNulls: {dropNulls}, \ntileScale: {tileScale}, \nfactor: {factor}, \nprojection:{projection}')
 
+        if self.image is None:
+            print("Error: Earth Engine image not set.")
+            return
 
         # Calculate start and end indices for the current batch
         start_index = batch_number * batch_size
