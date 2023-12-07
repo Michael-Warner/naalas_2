@@ -2,6 +2,8 @@ import ee
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
+import rasterio
+import dask.array as da
 
 
 class EEDatasetBuilder():
@@ -163,6 +165,8 @@ class EEDatasetBuilder():
             self.image = response
         else:
             self.image.addBands(response)
+
+        print(self.image)
 
     def rename_bands(self, image, prefix):
         """
@@ -427,35 +431,40 @@ class EEDatasetBuilder():
         else:
             self.image = self.image.addBands(srcImg=test_mask_combined, names=[test_set_name])
 
-    def load_ee_asset_shapefile(self, shp_asset_path):
+    def load_ee_asset_shapefile(self, shp_asset_path, start_index, end_index):
         """
         Loads an Earth Engine asset as a shapefile and returns the number of features
         and a list of features.
 
         Parameters:
         - shp_asset_path: Path to the Earth Engine asset.
+        - start index and end index creates batching for the shapefile
 
         Returns:
         - nb_features: Number of features in the shapefile.
         - list_features_assets: List of features in the shapefile.
         """
+        
         try:
-            # Load the feature collection from Earth Engine
             asset = ee.FeatureCollection(shp_asset_path)
-
-            # Count the number of features
             nb_features = asset.size().getInfo()
 
-            # Converting FeatureCollection to a Python list (if needed)
-            # Converting FeatureCollection to python list because it crashes when query > 5000 elements
-            # Adjust as necessary depending on how you want to use the features
-            #list_features_assets = ee.FeatureCollection(shp_asset_path).toList(nb_features).getInfo()
+            # Load the subset of features
+            list_features_assets = asset.toList(end_index - start_index, start_index)
 
-            return nb_features, asset #list_features_assets
+            # Convert the EE list to a Python list
+            list_features_assets = list_features_assets.getInfo()
 
+            # Check if the returned object is a list
+            if not isinstance(list_features_assets, list):
+                print("Error: Expected a list of features, got:", type(list_features_assets))
+                return nb_features, None
+
+            return nb_features, list_features_assets
+        
         except Exception as e:
             print(f"Error when loading FeatureCollection: {shp_asset_path}. Details: {e}")
-            return None, None  # Returning None values to indicate an error
+            return None, None
            
 
     def export_samples_to_cloud_storage(self, samples, index, name_gcp_bucket, folder_in_gcp_bucket, scale):
@@ -481,11 +490,11 @@ class EEDatasetBuilder():
                                                     **task_config)
         task.start()
 
-    def samples_csv_export(self, shp_asset_path, name_gcp_bucket, folder_in_gcp_bucket, numPixels=None, scale=None,
+    def samples_csv_export(self, list_features_assets, shp_asset_path, name_gcp_bucket, folder_in_gcp_bucket, numPixels=None, scale=None,
                            factor=None, seed=0, projection=None,
                            tileScale=1, geometries=True, dropNulls=True, isStratifiedSampling=False, numPoints=None,
                            classBand=None, classPoints=None,
-                           classValues=None, batch_size=None, batch_number=None):
+                           classValues=None, total_features = None, batch_size=None, batch_number=None):
         """
         Generates samples from the image and export them as CSV files to GCP bucket.
 
@@ -514,9 +523,17 @@ class EEDatasetBuilder():
         -------
 
         """
-            
-        ###### Loading shapefile asset ######
-        nb_features, list_features_assets = self.load_ee_asset_shapefile(shp_asset_path)
+
+        # Calculate start and end indices for the current batch
+        start_index = batch_number * batch_size
+        end_index = min(start_index + batch_size, total_features)
+
+        # Loading shapefile asset with the correct indices
+        list_features_assets, nb_features = self.load_ee_asset_shapefile(shp_asset_path, start_index, end_index)
+        if nb_features is None or list_features_assets is None:
+            print("Error: Unable to load or process shapefile asset.")
+            return
+
         if isStratifiedSampling:
             print(
                 f'Stratified sampling: \nnumPoints: {numPoints}, \nclassBand: {classBand}, \nscale: {scale}, \ngeometries: {geometries}, \ndropNulls: {dropNulls}, \ntileScale: {tileScale}, \nclassPoints: {classPoints}, \nseed: {seed}, \nprojection:{projection}')
@@ -528,46 +545,40 @@ class EEDatasetBuilder():
             print("Error: Earth Engine image not set.")
             return
 
-        # Calculate start and end indices for the current batch
-        start_index = batch_number * batch_size
-        end_index = min(start_index + batch_size, nb_features)
+        
+
+        print(f"Batch number: {batch_number}, Start index: {start_index}, End index: {end_index}, Total features: {nb_features}")
+
 
         # Looping through the grids in the current batch
-        for i in tqdm(range(start_index, end_index)):
-            # Looping through the grids
-            for i in tqdm(range(nb_features)):
-                if isStratifiedSampling:
-                    # Samples the pixels of an image, returning them as a FeatureCollection. 
-                    # Each feature will have 1 property per band in the input image. 
-                    # Note that the default behavior is to drop features that intersect masked pixels, 
-                    # which result in null-valued properties (see dropNulls argument).
-    #                 print('sampling...')
-                    sample_current_feature = self.image.clip(list_features_assets[i]['geometry']).stratifiedSample(
-                        numPoints=numPoints,
-                        classBand=classBand,
-                        region=list_features_assets[i]['geometry'],
-                        scale=scale,
-                        geometries=geometries,
-                        dropNulls=dropNulls,
-                        tileScale=tileScale,
-                        classPoints=classPoints,
-                        classValues=classValues,
-                        seed=seed,
-                        projection=projection
-                    )
-                else:
-                    # Samples the pixels of an image, returning them as a FeatureCollection.
-                    # Each feature will have 1 property per band in the input image.
-                    # Note that the default behavior is to drop features that intersect masked pixels,
-                    # which result in null-valued properties (see dropNulls argument).
-                    sample_current_feature = self.image.clip(list_features_assets[i]['geometry']).sample(
-                        numPixels=numPixels,
-                        region=list_features_assets[i]['geometry'],
-                        scale=scale,
-                        projection=projection,
-                        factor=factor,
-                        tileScale=tileScale,
-                        geometries=geometries,
+        for feature_asset in range(list_features_assets):
+            feature = ee.Feature(feature_asset)
+            feature_geometry = feature.geometry()
+
+            if isStratifiedSampling:
+                sample_current_feature = self.image.clip(feature_geometry).stratifiedSample(
+                    numPoints=numPoints,
+                    classBand=classBand,
+                    region=feature_geometry,
+                    scale=scale,
+                    geometries=geometries,
+                    dropNulls=dropNulls,
+                    tileScale=tileScale,
+                    classPoints=classPoints,
+                    classValues=classValues,
+                    seed=seed,
+                    projection=projection
+                )
+            else:
+                sample_current_feature = self.image.clip(feature_geometry).sample(
+                    numPixels=numPixels,
+                    region=feature_geometry,
+                    scale=scale,
+                    projection=projection,
+                    factor=factor,
+                    tileScale=tileScale,
+                    geometries=geometries
+                
                     # keeping the geometries so we can know where the data points are exactly and can display them on a map
                 )
 #             print('computing size...')
@@ -586,6 +597,30 @@ class EEDatasetBuilder():
 #             print('Sent to GEE')
 #             else:
 #                 print('size == 0 ')
+
+    def chunk_shapefile(self, total_features, chunk_size):
+        """ Divide the shapefile into chunks """
+        for i in range(0, total_features, chunk_size):
+            yield i, min(i + chunk_size, total_features)
+
+    def process_chunk(self, start_index, end_index):
+        """ Process each chunk of the shapefile """
+        for batch_number in range(start_index, end_index):
+            self.samples_csv_export(
+                # parameters for the export function
+            )
+        # Additional processing as needed
+
+    def main_processing_pipeline(self, shp_asset_path, chunk_size):
+        """ Main pipeline to process the entire shapefile with chunking and batching """
+        nb_features, asset, list_features_assets = self.load_ee_asset_shapefile(shp_asset_path)
+        
+        if nb_features is None:
+            print("Failed to load the Earth Engine asset.")
+            return
+
+        for start, end in self.chunk_shapefile(nb_features, chunk_size):
+            self.process_chunk(start, end)
 
     def export_tiles_to_cloud_storage(self, image, region, name_gcp_bucket, folder_in_gcp_bucket, index, scale,
                                       maxPixels):
@@ -639,6 +674,7 @@ class EEDatasetBuilder():
                                                name_gcp_bucket=name_gcp_bucket,
                                                folder_in_gcp_bucket=folder_in_gcp_bucket,
                                                index=i, scale=scale, maxPixels=maxPixels)
+
 
 
 ################################

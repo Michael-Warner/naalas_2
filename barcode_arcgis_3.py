@@ -36,7 +36,7 @@ for i in range(num_columns):
 # the first pixel, but with the x meter from the start. 
 # It then creates all the transects then goes back and creates the transect
 # at the first pixel of the line then the last pixel of the line.
-# 
+
 # This moves the second to last transect generated, to the "front" where it should be.
 
 columns = list(reshaped_data.columns)
